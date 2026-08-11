@@ -8,6 +8,7 @@ tool that implements the [Agent Skills](https://agentskills.io) standard.
 | skill | what it does |
 |---|---|
 | [`pr-stacks`](skills/pr-stacks) | Indexes stacked pull requests across an org and writes the message that asks for review — merge order, what each PR does, its tracker ticket, and where review has stalled. |
+| [`daily-standup`](skills/daily-standup) | Reconstructs a working day from its evidence — PRs, tracker transitions, coding-session nuance — and switches to catch-up mode when you have been away. |
 
 ## Install
 
@@ -79,6 +80,34 @@ digest | split | nudge                 rendering, default digest
 `--org` is required rather than defaulted: an unscoped search reaches every org
 an account can see, which on a machine with work and personal access quietly
 reports a stack spanning both.
+
+## daily-standup
+
+Most standup tooling reports what the API says *now*. A PR opened as a draft on
+Tuesday and merged Wednesday reads as "merged", so a Tuesday standup describes a
+day that did not happen. This one reconstructs each item's state **as of the
+target day's end**, using the governing timestamp for each transition rather
+than `updatedAt`.
+
+It is strict about what counts. A bumped `updatedAt` is not activity: pushing
+commits, syncing a branch, a label edit, or someone else's comment all move the
+timestamp without you having crossed a milestone, and none of them earn a place
+in the report.
+
+**Catch-up mode** is the part worth stealing. Rather than special-casing Monday,
+it measures the gap since your last activity across every source. Past the
+threshold (24h by default) the report inverts: one line naming the gap, then
+what moved *while you were away* — merges into your branches, reviews aimed at
+you, tickets reassigned, decisions that change your plans — and then what you
+are picking up today, written as already-accounted-for. A weekend is one
+instance of a gap; so is leave, a conference, or illness. Keying on the data
+handles all of them without a new rule each time.
+
+### Requirements
+
+- [`gh`](https://cli.github.com), authenticated
+- `python3` for the session scanner
+- optional: a tracker MCP (Linear, Jira) for ticket transitions
 
 ## Contributing
 

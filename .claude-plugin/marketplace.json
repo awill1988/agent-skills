@@ -14,6 +14,12 @@
       "source": "./skills/pr-stacks",
       "description": "Index stacked pull requests across an org and write the message that asks for review.",
       "category": "development"
+    },
+    {
+      "name": "daily-standup",
+      "source": "./skills/daily-standup",
+      "description": "Build a standup report from what actually happened, with catch-up mode after a gap in activity.",
+      "category": "productivity"
     }
   ]
 }
