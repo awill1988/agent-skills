@@ -1,0 +1,19 @@
+{
+  "name": "agent-skills",
+  "owner": {
+    "name": "awill1988",
+    "url": "https://github.com/awill1988"
+  },
+  "metadata": {
+    "description": "Agent Skills for coding agents, portable across tools implementing the Agent Skills standard.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "pr-stacks",
+      "source": "./skills/pr-stacks",
+      "description": "Index stacked pull requests across an org and write the message that asks for review.",
+      "category": "development"
+    }
+  ]
+}
