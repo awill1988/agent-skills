@@ -9,6 +9,7 @@ tool that implements the [Agent Skills](https://agentskills.io) standard.
 |---|---|
 | [`pr-stacks`](skills/pr-stacks) | Indexes stacked pull requests across an org and writes the message that asks for review — merge order, what each PR does, its tracker ticket, and where review has stalled. |
 | [`daily-standup`](skills/daily-standup) | Reconstructs a working day from its evidence — PRs, tracker transitions, coding-session nuance — and switches to catch-up mode when you have been away. |
+| [`publishing-docs`](skills/publishing-docs) | Steers a draft of technical documentation into a register that teaches — define terms before claims, survey alternatives fairly, hedge what is unproven, demote detail — before it is published. |
 
 ## Install
 
@@ -108,6 +109,32 @@ handles all of them without a new rule each time.
 - [`gh`](https://cli.github.com), authenticated
 - `python3` for the session scanner
 - optional: a tracker MCP (Linear, Jira) for ticket transitions
+
+## publishing-docs
+
+A published document outlives the conversation that produced it, and most of its
+readers were not in that conversation. The natural failure modes sit on either
+side: the **spec**, which buries the reader in decision tables before they know
+what the system is, and the **pitch**, which compresses everything into a
+named-enemy headline and teaches nothing. This skill steers a draft into a third
+register — the one a good textbook introduction uses: **summarize, introduce,
+invite.**
+
+It works as eight ordered transformations, not a checklist: teach before
+claiming, picture → mechanism → number, find the narrative turn, survey
+alternatives instead of dispatching them, demote detail to an appendix, hedge as
+content, cite only where it teaches, end with invitations. A typical draft needs
+three or four of them.
+
+**Rewrites must be substance-preserving.** Before publishing a rewrite, the
+skill has you diff the decision content — same components, same contracts, same
+scopes, same links — so that every change is verifiably rhetorical. A decision
+that changed under the rewrite is a revision wearing a rewrite's clothes, and
+gets split out.
+
+A full worked before/after in a generic domain lives in
+[`references/example-rewrite.md`](skills/publishing-docs/references/example-rewrite.md).
+No scripts, no requirements — the skill is entirely steering.
 
 ## Contributing
 
