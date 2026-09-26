@@ -20,6 +20,18 @@
       "source": "./skills/daily-standup",
       "description": "Build a standup report from what actually happened, with catch-up mode after a gap in activity.",
       "category": "productivity"
+    },
+    {
+      "name": "publishing-docs",
+      "source": "./skills/publishing-docs",
+      "description": "Steers a draft of technical documentation into a register that teaches before publication.",
+      "category": "documentation"
+    },
+    {
+      "name": "code-documentation-simplification",
+      "source": "./skills/code-documentation-simplification",
+      "description": "Scans code comments and docstrings to eliminate procedural re-narration and reduce line count, distilling them into clear domain invariants.",
+      "category": "development"
     }
   ]
 }
