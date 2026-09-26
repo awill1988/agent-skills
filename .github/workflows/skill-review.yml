@@ -1,0 +1,62 @@
+name: Skill Review
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'skills/**'
+      - 'tools/**'
+      - '.claude-plugin/**'
+      - 'README.md'
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: 'Base ref to compare against'
+        required: false
+        default: 'origin/main'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  skill_review:
+    name: Skill Quality & Best Practices Review
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Restore Model & Runner Cache
+        id: cache-model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/adversarial-reviewer
+          key: adv-model-v1-${{ hashFiles('tools/skill_reviewer/model.env') }}
+
+      - name: Ensure Model & Runner
+        run: python3 tools/skill_reviewer/fetch_model.py
+
+      - name: Run Skill Review
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          export LD_LIBRARY_PATH="$HOME/.cache/adversarial-reviewer/llama_runner/build/bin:$HOME/.cache/adversarial-reviewer:${LD_LIBRARY_PATH:-}"
+          BASE_REF="${{ github.event.pull_request.base.sha || inputs.base_ref || 'origin/main' }}"
+          PR_NUM="${{ github.event.pull_request.number || '' }}"
+          python3 tools/skill_reviewer/skill_review.py \
+            --base "$BASE_REF" \
+            --target "${PR_NUM:+PR #$PR_NUM}" \
+            ${PR_NUM:+--pr "$PR_NUM"} \
+            --summary-file "$GITHUB_STEP_SUMMARY" \
+            --fail-on request-changes
