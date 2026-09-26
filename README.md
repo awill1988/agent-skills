@@ -10,6 +10,7 @@ tool that implements the [Agent Skills](https://agentskills.io) standard.
 | [`pr-stacks`](skills/pr-stacks) | Indexes stacked pull requests across an org and writes the message that asks for review — merge order, what each PR does, its tracker ticket, and where review has stalled. |
 | [`daily-standup`](skills/daily-standup) | Reconstructs a working day from its evidence — PRs, tracker transitions, coding-session nuance — and switches to catch-up mode when you have been away. |
 | [`publishing-docs`](skills/publishing-docs) | Steers a draft of technical documentation into a register that teaches — define terms before claims, survey alternatives fairly, hedge what is unproven, demote detail — before it is published. |
+| [`code-documentation-simplification`](skills/code-documentation-simplification) | Scans code comments and docstrings to eliminate procedural re-narration and reduce line count, distilling them into clear domain invariants and design rationale grounded in Domain-Driven Design. |
 
 ## Install
 
@@ -135,6 +136,26 @@ gets split out.
 A full worked before/after in a generic domain lives in
 [`references/example-rewrite.md`](skills/publishing-docs/references/example-rewrite.md).
 No scripts, no requirements — the skill is entirely steering.
+
+## code-documentation-simplification
+
+Code comments easily drift into chronological play-by-play narration of implementation mechanics, duplicating what running code already specifies. This skill operationalizes Eric Evans' *Domain-Driven Design* principles (Intention-Revealing Interfaces, Ubiquitous Language, Supple Design, Assertions) to audit and simplify code comments and docstrings across polyglot repositories.
+
+```bash
+# Scan a directory and print an audit report
+python3 skills/code-documentation-simplification/scripts/scan_comments.py --path src --min-lines 2
+
+# Summary metrics across the codebase
+python3 skills/code-documentation-simplification/scripts/scan_comments.py --format summary
+```
+
+**The 4 evaluation gates:**
+1. *Does the code already say this?* -> Delete the comment.
+2. *Can an Intention-Revealing Interface or type express this?* -> Rename identifier/type and delete the comment.
+3. *Does this narrate procedural steps ("how/what")?* -> Strip procedural narrative.
+4. *Does this inform a domain invariant, seam contract, or architectural rationale ("why")?* -> Distill to a single high-density invariant or rationale statement.
+
+Includes an automated scanner ([`scripts/scan_comments.py`](skills/code-documentation-simplification/scripts/scan_comments.py)), foundational DDD analysis ([`references/domain-driven-design-principles.md`](skills/code-documentation-simplification/references/domain-driven-design-principles.md)), an anti-pattern taxonomy ([`references/comment-anti-patterns.md`](skills/code-documentation-simplification/references/comment-anti-patterns.md)), and polyglot before/after transformations across Rust, Swift, Python, and TypeScript ([`examples/transformations.md`](skills/code-documentation-simplification/examples/transformations.md)).
 
 ## Contributing
 
