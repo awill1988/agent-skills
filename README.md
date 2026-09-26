@@ -145,6 +145,8 @@ folder containing `SKILL.md` with YAML frontmatter, plus optional `scripts/`,
 
 Shell scripts are `shellcheck`-clean.
 
+Pull requests are automatically audited in CI against the Agent Skills specification and progressive disclosure standards using `python3 tools/skill_reviewer/skill_review.py`.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
