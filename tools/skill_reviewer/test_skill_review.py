@@ -18,6 +18,7 @@ from skill_review import (
     evaluate_skill,
     evaluate_static_smells,
     parse_yaml_frontmatter,
+    synthesize_skill_understanding,
 )
 
 
@@ -165,6 +166,106 @@ class LifecycleEvaluationTests(unittest.TestCase):
         self.assertIn("## 🟢 Agent Skills Review: PR #99 — `APPROVE`", report)
         self.assertIn("| `removed-skill` | **DELETED** | 🟢 APPROVE |", report)
         self.assertIn("This skill was deleted in this change. Skipping quality review and approving deletion.", report)
+
+
+class ComprehensionAndReasoningTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = Path(tempfile.mkdtemp())
+        self.skills_dir = self.temp_dir / "skills"
+        self.skills_dir.mkdir(parents=True)
+        plugin_dir = self.temp_dir / ".claude-plugin"
+        plugin_dir.mkdir(parents=True)
+        (plugin_dir / "marketplace.json").write_text('{"plugins": [{"name": "comprehension-skill"}]}', encoding="utf-8")
+        (self.temp_dir / "README.md").write_text("# Readme\n- [`comprehension-skill`](skills/comprehension-skill)", encoding="utf-8")
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.temp_dir)
+
+    def test_synthesize_skill_understanding_extracts_workflows_and_assets(self) -> None:
+        skill_dir = self.skills_dir / "comprehension-skill"
+        skill_dir.mkdir()
+        (skill_dir / "references").mkdir()
+        (skill_dir / "references" / "guide.md").write_text("# Reference", encoding="utf-8")
+
+        (skill_dir / "SKILL.md").write_text("""---
+name: comprehension-skill
+description: A specialized skill for testing semantic understanding synthesis and workflow extraction.
+license: MIT
+---
+
+# Comprehension Skill
+
+## Workflow
+1. Initial discovery and context gathering.
+2. Structural modeling and decision logging.
+3. Verification against compliance invariants.
+""", encoding="utf-8")
+
+        summary = synthesize_skill_understanding(
+            skill_name="comprehension-skill",
+            root_dir=self.temp_dir,
+            ref="HEAD",
+            change_type="NEW",
+            diff_text="",
+            files=["skills/comprehension-skill/SKILL.md", "skills/comprehension-skill/references/guide.md"],
+        )
+        self.assertIn("testing semantic understanding synthesis", summary)
+        self.assertIn("Initial discovery and context gathering", summary)
+        self.assertIn("1 reference guide(s)", summary)
+
+    def test_evaluate_skill_populates_reasoning_trace(self) -> None:
+        skill_dir = self.skills_dir / "comprehension-skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("""---
+name: comprehension-skill
+description: A specialized skill for testing semantic understanding synthesis and workflow extraction.
+license: MIT
+---
+# Clean Body
+""", encoding="utf-8")
+
+        skill = SkillChange(
+            name="comprehension-skill",
+            change_type="NEW",
+            files=["skills/comprehension-skill/SKILL.md"]
+        )
+        evaluate_skill(
+            skill=skill,
+            base="origin/main",
+            head="HEAD",
+            root_dir=self.temp_dir,
+            mock=True,
+            cache_dir=self.temp_dir / "cache",
+        )
+        self.assertEqual(skill.disposition, "APPROVE")
+        self.assertGreater(len(skill.reasoning_trace), 4)
+        stages = [s["stage"] for s in skill.reasoning_trace]
+        self.assertIn("1. Lifecycle Classification", stages)
+        self.assertIn("2. Frontmatter Specification", stages)
+        self.assertIn("3. Progressive Disclosure", stages)
+
+    def test_build_markdown_report_includes_details_and_anchor(self) -> None:
+        skill = SkillChange(
+            name="demo-skill",
+            change_type="NEW",
+            functional_summary="**Purpose & Scope**: Demonstrates understanding.",
+            reasoning_trace=[{
+                "stage": "1. Lifecycle Classification",
+                "scope": "Diff",
+                "status": "🟢 PASSED",
+                "rationale": "Classified as NEW.",
+            }],
+            model_reasoning="Model concurs with clean implementation.",
+            model_latency=1.23,
+        )
+        report = build_markdown_report("PR #10", "APPROVE", {"demo-skill": skill})
+        self.assertIn("<!-- agent-skills-review:report -->", report)
+        self.assertIn("#### 📋 Functional Summary & Change Understanding", report)
+        self.assertIn("Demonstrates understanding", report)
+        self.assertIn("<details>", report)
+        self.assertIn("🧠 <b>Reasoning Chain & Evaluation Audit Trail</b>", report)
+        self.assertIn("Model concurs with clean implementation", report)
+        self.assertIn("1.23s latency", report)
 
 
 if __name__ == "__main__":

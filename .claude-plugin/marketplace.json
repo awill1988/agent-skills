@@ -32,6 +32,12 @@
       "source": "./skills/code-documentation-simplification",
       "description": "Scans code comments and docstrings to eliminate procedural re-narration and reduce line count, distilling them into clear domain invariants.",
       "category": "development"
+    },
+    {
+      "name": "adr-authoring",
+      "source": "./skills/adr-authoring",
+      "description": "Guides the authoring and review of Architecture Decision Records (ADRs) with explicit invariants and abstention modeling.",
+      "category": "development"
     }
   ]
 }
