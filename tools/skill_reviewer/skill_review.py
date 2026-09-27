@@ -102,6 +102,10 @@ class SkillChange:
     findings: list[Finding] = field(default_factory=list)
     disposition: str = "APPROVE"
     summary: str = ""
+    functional_summary: str = ""
+    reasoning_trace: list[dict] = field(default_factory=list)
+    model_reasoning: str = ""
+    model_latency: float = 0.0
 
 
 # -----------------------------------------------------------------------------
@@ -609,6 +613,105 @@ def parse_model_disposition(raw_text: str) -> str:
 # Review Orchestration & Report Construction
 # -----------------------------------------------------------------------------
 
+def synthesize_skill_understanding(
+    skill_name: str,
+    root_dir: Path,
+    ref: str,
+    change_type: str,
+    diff_text: str,
+    files: list[str],
+) -> str:
+    """Synthesize structured understanding of what the skill does and its capabilities."""
+    if change_type == "DELETED":
+        return f"Skill `{skill_name}` was deleted and retired from the skills catalog."
+
+    skill_md_content = get_file_content(ref, f"skills/{skill_name}/SKILL.md", root_dir)
+    if not skill_md_content:
+        return f"Skill `{skill_name}` ({change_type}) touches {len(files)} file(s)."
+
+    fm, body, _ = parse_yaml_frontmatter(skill_md_content)
+    desc = fm.get("description", "").strip()
+
+    # Extract title from # <Title>
+    title = skill_name
+    for line in body.splitlines():
+        if line.startswith("# "):
+            title = line[2:].strip()
+            break
+
+    # Extract sections (e.g. ## Overview, ## When to Use, ## Workflow, ## Guidelines)
+    sections: dict[str, str] = {}
+    current_sec = None
+    sec_lines = []
+    for line in body.splitlines():
+        if line.startswith("## "):
+            if current_sec:
+                sections[current_sec] = "\n".join(sec_lines).strip()
+            current_sec = line[3:].strip()
+            sec_lines = []
+        elif current_sec:
+            sec_lines.append(line)
+    if current_sec:
+        sections[current_sec] = "\n".join(sec_lines).strip()
+
+    # Discover bundled assets
+    references = [f for f in files if f.startswith(f"skills/{skill_name}/references/")]
+    scripts = [f for f in files if f.startswith(f"skills/{skill_name}/scripts/")]
+    examples = [f for f in files if f.startswith(f"skills/{skill_name}/examples/")]
+
+    summary_items = []
+
+    # 1. Purpose & Core Intent
+    if desc:
+        summary_items.append(f"- **Purpose & Scope**: {desc}")
+    elif title != skill_name:
+        summary_items.append(f"- **Purpose & Scope**: Defines guidelines and automated procedures for {title}.")
+
+    # 2. Procedural Sequence / Key Workflows
+    workflow_steps = []
+    for sec_name, sec_body in sections.items():
+        if any(kw in sec_name.lower() for kw in ("workflow", "procedure", "process", "steps", "instructions", "usage")):
+            for l in sec_body.splitlines():
+                l_strip = l.strip()
+                if re.match(r"^(\d+\.|\-|\*)\s+", l_strip):
+                    step_text = re.sub(r"^(\d+\.|\-|\*)\s+", "", l_strip).strip()
+                    if step_text:
+                        workflow_steps.append(step_text)
+                if len(workflow_steps) >= 4:
+                    break
+            if not workflow_steps:
+                first_para = sec_body.split("\n\n")[0].replace("\n", " ").strip()
+                if first_para:
+                    workflow_steps.append(first_para[:250])
+            break
+
+    if workflow_steps:
+        formatted_steps = " → ".join(workflow_steps)
+        summary_items.append(f"- **Procedural Sequence**: {formatted_steps}")
+
+    # 3. Bundled Assets & Extensions
+    assets_desc = []
+    if references:
+        ref_names = ", ".join(f"`{Path(r).name}`" for r in references)
+        assets_desc.append(f"{len(references)} reference guide(s) ({ref_names})")
+    if scripts:
+        script_names = ", ".join(f"`{Path(s).name}`" for s in scripts)
+        assets_desc.append(f"{len(scripts)} executable helper script(s) ({script_names})")
+    if examples:
+        example_names = ", ".join(f"`{Path(e).name}`" for e in examples)
+        assets_desc.append(f"{len(examples)} example catalog(s) ({example_names})")
+
+    if assets_desc:
+        summary_items.append(f"- **Bundled Assets**: {'; '.join(assets_desc)}.")
+
+    # 4. Change Delta (for UPDATED skills)
+    if change_type == "UPDATED":
+        changed_names = ", ".join(f"`{Path(f).name}`" for f in files)
+        summary_items.append(f"- **Change Delta**: Updated {len(files)} asset(s) ({changed_names}).")
+
+    return "\n".join(summary_items)
+
+
 def evaluate_skill(
     skill: SkillChange,
     base: str,
@@ -617,16 +720,147 @@ def evaluate_skill(
     mock: bool,
     cache_dir: Path
 ) -> None:
-    """Evaluate an individual skill based on its lifecycle status."""
+    """Evaluate an individual skill based on its lifecycle status and record reasoning trace."""
     # 1. DELETED SKILLS
     if skill.change_type == "DELETED":
         skill.disposition = "APPROVE"
         skill.summary = f"Skill `{skill.name}` has been deleted. Skipping content review and approving deletion."
+        skill.functional_summary = synthesize_skill_understanding(
+            skill.name, root_dir, ref=head, change_type=skill.change_type, diff_text="", files=skill.files
+        )
+        skill.reasoning_trace.append({
+            "stage": "1. Lifecycle Classification",
+            "scope": "Git Tree Diff",
+            "status": "🟢 PASSED",
+            "rationale": f"Skill `{skill.name}` was deleted in this pull request. Auto-approved without content analysis.",
+        })
         return
 
-    # 2. NEW & UPDATED SKILLS: Static Analysis
+    diff_text = extract_git_diff_text(base, head, skill.files)
+
+    # Synthesize functional understanding of skill
+    skill.functional_summary = synthesize_skill_understanding(
+        skill.name, root_dir, ref=head, change_type=skill.change_type, diff_text=diff_text, files=skill.files
+    )
+
+    # Record Stage 1: Lifecycle
+    skill.reasoning_trace.append({
+        "stage": "1. Lifecycle Classification",
+        "scope": "Git Tree Diff",
+        "status": "🟢 PASSED",
+        "rationale": f"Classified as `{skill.change_type}` ({len(skill.files)} file(s) touched across base '{base}' and head '{head}').",
+    })
+
+    # 2. Static Analysis
     findings = evaluate_static_smells(skill.name, root_dir, ref=head)
     skill.findings = findings
+
+    # Evaluate Stage 2: Frontmatter
+    fm_findings = [f for f in findings if f.category == "frontmatter"]
+    if not fm_findings:
+        skill.reasoning_trace.append({
+            "stage": "2. Frontmatter Specification",
+            "scope": "FM001–FM005",
+            "status": "🟢 PASSED",
+            "rationale": "Valid YAML frontmatter; name matches directory pattern; description length within bounds; no prohibited fields.",
+        })
+    else:
+        severities = {f.severity for f in fm_findings}
+        status = "🔴 FAILED" if "BLOCKER" in severities or "MAJOR" in severities else "🟡 WARNING"
+        reasons = "; ".join(f"{f.rule_code}: {f.title}" for f in fm_findings)
+        skill.reasoning_trace.append({
+            "stage": "2. Frontmatter Specification",
+            "scope": "FM001–FM005",
+            "status": status,
+            "rationale": f"Detected {len(fm_findings)} issue(s): {reasons}.",
+        })
+
+    # Evaluate Stage 3: Progressive Disclosure & Budget
+    pd_findings = [f for f in findings if f.category == "progressive_disclosure"]
+    if not pd_findings:
+        skill.reasoning_trace.append({
+            "stage": "3. Progressive Disclosure",
+            "scope": "PD001–PD003",
+            "status": "🟢 PASSED",
+            "rationale": f"SKILL.md satisfies line limit (≤ {MAX_SKILL_MD_LINES} lines) and byte limit (≤ {MAX_SKILL_MD_BYTES // 1024} KB); relative links resolve.",
+        })
+    else:
+        severities = {f.severity for f in pd_findings}
+        status = "🔴 FAILED" if "BLOCKER" in severities or "MAJOR" in severities else "🟡 WARNING"
+        reasons = "; ".join(f"{f.rule_code}: {f.title}" for f in pd_findings)
+        skill.reasoning_trace.append({
+            "stage": "3. Progressive Disclosure",
+            "scope": "PD001–PD003",
+            "status": status,
+            "rationale": f"Context budget / link issues: {reasons}.",
+        })
+
+    # Evaluate Stage 4: Script Hygiene
+    sc_findings = [f for f in findings if f.category == "scripts"]
+    has_scripts = any(f.startswith(f"skills/{skill.name}/scripts/") for f in skill.files)
+    if not has_scripts:
+        skill.reasoning_trace.append({
+            "stage": "4. Script Hygiene & Isolation",
+            "scope": "SC001–SC003",
+            "status": "⚪ N/A",
+            "rationale": "No standalone helper scripts bundled with this skill.",
+        })
+    elif not sc_findings:
+        skill.reasoning_trace.append({
+            "stage": "4. Script Hygiene & Isolation",
+            "scope": "SC001–SC003",
+            "status": "🟢 PASSED",
+            "rationale": "Helper scripts possess executable permissions (+x), valid shebang, and security safeguards.",
+        })
+    else:
+        severities = {f.severity for f in sc_findings}
+        status = "🔴 FAILED" if "BLOCKER" in severities or "MAJOR" in severities else "🟡 WARNING"
+        reasons = "; ".join(f"{f.rule_code}: {f.title}" for f in sc_findings)
+        skill.reasoning_trace.append({
+            "stage": "4. Script Hygiene & Isolation",
+            "scope": "SC001–SC003",
+            "status": status,
+            "rationale": f"Script hygiene issues: {reasons}.",
+        })
+
+    # Evaluate Stage 5: Attribution & Safety
+    sec_findings = [f for f in findings if f.category in ("attribution", "safety")]
+    if not sec_findings:
+        skill.reasoning_trace.append({
+            "stage": "5. Safety & Attribution",
+            "scope": "AT001, SEC001",
+            "status": "🟢 PASSED",
+            "rationale": "Zero AI attribution metadata (no co-authored-by tags); no hardcoded secrets or environment-leaking paths.",
+        })
+    else:
+        severities = {f.severity for f in sec_findings}
+        status = "🔴 FAILED" if "BLOCKER" in severities or "MAJOR" in severities else "🟡 WARNING"
+        reasons = "; ".join(f"{f.rule_code}: {f.title}" for f in sec_findings)
+        skill.reasoning_trace.append({
+            "stage": "5. Safety & Attribution",
+            "scope": "AT001, SEC001",
+            "status": status,
+            "rationale": f"Attribution/safety violations: {reasons}.",
+        })
+
+    # Evaluate Stage 6: Catalog Integration
+    cat_findings = [f for f in findings if f.category == "catalog"]
+    if not cat_findings:
+        skill.reasoning_trace.append({
+            "stage": "6. Catalog & Ecosystem Indexing",
+            "scope": "CT001, CT002",
+            "status": "🟢 PASSED",
+            "rationale": "Properly registered in marketplace manifest (.claude-plugin/marketplace.json) and README.md.",
+        })
+    else:
+        status = "🟡 WARNING"
+        reasons = "; ".join(f"{f.rule_code}: {f.title}" for f in cat_findings)
+        skill.reasoning_trace.append({
+            "stage": "6. Catalog & Ecosystem Indexing",
+            "scope": "CT001, CT002",
+            "status": status,
+            "rationale": f"Catalog registration findings: {reasons}.",
+        })
 
     # Compute static disposition
     has_blocker_or_major = any(f.severity in ("BLOCKER", "MAJOR") for f in findings)
@@ -639,10 +873,10 @@ def evaluate_skill(
     else:
         static_disp = "APPROVE"
 
-    # 3. Model Inference (if available and not in mock mode)
-    diff_text = extract_git_diff_text(base, head, skill.files)
+    # Stage 7: Model Inference
     model_disp = "APPROVE"
     raw_model_output = ""
+    start_time = time.time()
 
     if not mock and diff_text:
         model_path = cache_dir / "qwen2.5-coder-0.5b-instruct-q4_k_m.gguf"
@@ -660,6 +894,39 @@ def evaluate_skill(
                 model_disp = parse_model_disposition(raw_model_output)
             except Exception as exc:
                 logging.debug("model inference failed (%s); using static analysis.", exc)
+                raw_model_output = f"Model execution failed: {exc}"
+        else:
+            raw_model_output = "Model runner or weights not found in cache. Evaluated using heuristic rules."
+    elif mock:
+        raw_model_output = "Deterministic heuristic review requested (--mock). Adversarial model evaluation bypassed."
+
+    elapsed = time.time() - start_time
+    skill.model_reasoning = raw_model_output.strip()
+    skill.model_latency = elapsed
+
+    # Record Stage 7: Model Inference
+    if mock:
+        skill.reasoning_trace.append({
+            "stage": "7. Adversarial Model Review",
+            "scope": "LLM Semantics",
+            "status": "⚪ MOCK",
+            "rationale": "Deterministic static evaluation completed without local model execution.",
+        })
+    elif raw_model_output and "failed" not in raw_model_output.lower() and "not found" not in raw_model_output.lower():
+        m_status = "🟢 PASSED" if model_disp == "APPROVE" else ("🔴 FAILED" if model_disp == "REQUEST_CHANGES" else "🟡 COMMENT")
+        skill.reasoning_trace.append({
+            "stage": "7. Adversarial Model Review",
+            "scope": "LLM Semantics",
+            "status": m_status,
+            "rationale": f"Quantized model inference completed in {elapsed:.2f}s with disposition `{model_disp}`.",
+        })
+    else:
+        skill.reasoning_trace.append({
+            "stage": "7. Adversarial Model Review",
+            "scope": "LLM Semantics",
+            "status": "⚪ SKIPPED",
+            "rationale": "Model runner not active; defaulted to deterministic rule findings.",
+        })
 
     # Combine dispositions (most restrictive wins)
     if "REQUEST_CHANGES" in (static_disp, model_disp):
@@ -676,7 +943,7 @@ def evaluate_skill(
 
 
 def build_markdown_report(target: str, overall_disposition: str, skills: dict[str, SkillChange]) -> str:
-    """Build formatted GitHub Markdown report."""
+    """Build formatted GitHub Markdown report with comprehension summary and reasoning chain."""
     icon_map = {
         "APPROVE": "🟢",
         "COMMENT": "🟡",
@@ -684,7 +951,8 @@ def build_markdown_report(target: str, overall_disposition: str, skills: dict[st
     }
     icon = icon_map.get(overall_disposition, "⚪")
 
-    report = f"## {icon} Agent Skills Review: {target} — `{overall_disposition}`\n\n"
+    report = "<!-- agent-skills-review:report -->\n"
+    report += f"## {icon} Agent Skills Review: {target} — `{overall_disposition}`\n\n"
     report += "| Skill | Change Type | Status | Summary |\n"
     report += "|---|---|---|---|\n"
 
@@ -694,7 +962,7 @@ def build_markdown_report(target: str, overall_disposition: str, skills: dict[st
 
     report += "\n---\n\n"
 
-    # Detail findings for each skill
+    # Detail findings, comprehension summary, and reasoning chain for each skill
     for skill_name, skill in sorted(skills.items()):
         report += f"### Skill: `{skill.name}` ({skill.change_type})\n\n"
 
@@ -703,10 +971,17 @@ def build_markdown_report(target: str, overall_disposition: str, skills: dict[st
             report += "> This skill was deleted in this change. Skipping quality review and approving deletion.\n\n"
             continue
 
+        # 1. Functional Summary & Change Understanding
+        if skill.functional_summary:
+            report += "#### 📋 Functional Summary & Change Understanding\n"
+            report += f"{skill.functional_summary}\n\n"
+
+        # 2. Detected Findings
         if not skill.findings:
+            report += "#### 🔎 Findings\n"
             report += "No major smells or specification violations detected. Clean implementation.\n\n"
         else:
-            report += "#### Detected Findings:\n"
+            report += "#### 🔎 Detected Findings\n"
             for f in skill.findings:
                 sev_icon = "🛑" if f.severity == "BLOCKER" else ("⚠️" if f.severity == "MAJOR" else "ℹ️")
                 loc = f" (`{f.file}`)" if f.file else ""
@@ -716,28 +991,143 @@ def build_markdown_report(target: str, overall_disposition: str, skills: dict[st
                     report += f"  - *Expected Pattern*: `{f.counterexample}`\n"
             report += "\n"
 
+        # 3. Pretty-Formatted Reasoning Chain Dump
+        report += "<details>\n"
+        report += "<summary>🧠 <b>Reasoning Chain & Evaluation Audit Trail</b> (click to expand)</summary>\n\n"
+
+        if skill.reasoning_trace:
+            report += "##### Pipeline Verification Stages\n\n"
+            report += "| Stage | Verification Scope | Status | Rationale |\n"
+            report += "|---|---|---|---|\n"
+            for step in skill.reasoning_trace:
+                report += f"| {step['stage']} | `{step['scope']}` | {step['status']} | {step['rationale']} |\n"
+            report += "\n"
+
+        if skill.model_reasoning:
+            latency_str = f" ({skill.model_latency:.2f}s latency)" if skill.model_latency > 0 else ""
+            report += f"##### Adversarial Model Reasoning Dump{latency_str}\n\n"
+            report += "```text\n"
+            report += f"{skill.model_reasoning}\n"
+            report += "```\n\n"
+
+        report += "##### Disposition Synthesis\n"
+        report += f"- **Evaluated Outcome**: `{skill.disposition}`\n"
+        report += f"- **Smells Detected**: {len(skill.findings)}\n"
+        report += "</details>\n\n"
+
     report += "---\n*Automated Agent Skills Review harness grounded in agentskills.io and Anthropic guidelines.*\n"
     return report
 
 
+def find_existing_review_comment(pr: int) -> int | None:
+    """Find existing sticky review comment on PR issue."""
+    cmd = ["gh", "api", f"repos/:owner/:repo/issues/{pr}/comments", "--paginate"]
+    res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if res.returncode != 0:
+        return None
+    try:
+        comments = json.loads(res.stdout)
+        for c in comments:
+            body = c.get("body", "")
+            if "<!-- agent-skills-review:report -->" in body or "Agent Skills Review:" in body:
+                return c.get("id")
+    except Exception as exc:
+        logging.debug("failed to parse existing comments: %s", exc)
+    return None
+
+
+def upsert_pr_comment(pr: int, report: str) -> str | None:
+    """Create or update the single sticky review report comment on PR."""
+    comment_id = find_existing_review_comment(pr)
+    if comment_id:
+        cmd = [
+            "gh", "api", "--method", "PATCH",
+            f"repos/:owner/:repo/issues/comments/{comment_id}",
+            "-f", f"body={report}",
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        if res.returncode == 0:
+            print(f"updated existing review report comment #{comment_id} on PR #{pr}")
+            try:
+                data = json.loads(res.stdout)
+                return data.get("html_url")
+            except Exception:
+                return None
+        print(f"failed to update existing comment #{comment_id} ({res.stderr.strip()}); falling back to new comment", file=sys.stderr)
+
+    cmd = [
+        "gh", "api", "--method", "POST",
+        f"repos/:owner/:repo/issues/{pr}/comments",
+        "-f", f"body={report}",
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if res.returncode == 0:
+        print(f"created new review report comment on PR #{pr}")
+        try:
+            data = json.loads(res.stdout)
+            return data.get("html_url")
+        except Exception:
+            return None
+    print(f"failed to post PR comment via API: {res.stderr.strip()}", file=sys.stderr)
+    return None
+
+
+def check_existing_formal_review(pr: int, target_disposition: str) -> bool:
+    """Check if the latest review from github-actions[bot] already matches target disposition."""
+    cmd = ["gh", "pr", "view", str(pr), "--json", "reviews"]
+    res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if res.returncode != 0:
+        return False
+    try:
+        data = json.loads(res.stdout)
+        reviews = data.get("reviews", [])
+        bot_reviews = [
+            r for r in reviews
+            if r.get("author", {}).get("login") in ("github-actions", "github-actions[bot]")
+        ]
+        if not bot_reviews:
+            return False
+        latest_review = bot_reviews[-1]
+        latest_state = latest_review.get("state", "").upper()
+        if target_disposition == "APPROVE" and latest_state == "APPROVED":
+            return True
+        if target_disposition == "REQUEST_CHANGES" and latest_state == "CHANGES_REQUESTED":
+            return True
+    except Exception as exc:
+        logging.debug("failed to inspect existing reviews: %s", exc)
+    return False
+
+
 def submit_pr_review(pr: int, disposition: str, report: str) -> None:
-    """Submit formal review to GitHub Pull Request."""
+    """Submit idempotent PR review report and manage formal PR approval."""
+    # 1. Upsert single sticky PR comment (in-place PATCH or initial POST)
+    comment_url = upsert_pr_comment(pr, report)
+
+    # 2. Check if formal review is already in desired state
+    if check_existing_formal_review(pr, disposition):
+        print(f"formal review already in state '{disposition}' on PR #{pr}; skipped duplicate review creation")
+        return
+
+    # 3. Submit formal review with concise link to sticky comment
     if disposition == "APPROVE":
         review_flag = "--approve"
+        summary_note = "All skill quality and specification checks passed."
     elif disposition == "REQUEST_CHANGES":
         review_flag = "--request-changes"
+        summary_note = "Skill quality findings require resolution before merge."
     else:
         review_flag = "--comment"
+        summary_note = "Automated advisory feedback recorded."
 
-    cmd = ["gh", "pr", "review", str(pr), review_flag, "--body", report]
+    link_text = f"See the [full audit report and reasoning chain]({comment_url}) above." if comment_url else "See the detailed audit report above."
+    review_body = f"### 🟢 Agent Skills Review: `{disposition}`\n\n{summary_note}\n{link_text}"
+
+    cmd = ["gh", "pr", "review", str(pr), review_flag, "--body", review_body]
     res = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if res.returncode == 0:
         print(f"submitted formal PR review ({review_flag}) to PR #{pr}")
     else:
-        print(f"formal PR review failed ({res.stderr.strip()}); falling back to PR comment...", file=sys.stderr)
-        cmd_comment = ["gh", "pr", "comment", str(pr), "--body", report]
-        subprocess.run(cmd_comment, check=True)
-        print(f"posted review comment to PR #{pr}")
+        print(f"formal PR review notice ({review_flag}) failed ({res.stderr.strip()})", file=sys.stderr)
 
 
 # -----------------------------------------------------------------------------

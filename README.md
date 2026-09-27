@@ -11,6 +11,7 @@ tool that implements the [Agent Skills](https://agentskills.io) standard.
 | [`daily-standup`](skills/daily-standup) | Reconstructs a working day from its evidence — PRs, tracker transitions, coding-session nuance — and switches to catch-up mode when you have been away. |
 | [`publishing-docs`](skills/publishing-docs) | Steers a draft of technical documentation into a register that teaches — define terms before claims, survey alternatives fairly, hedge what is unproven, demote detail — before it is published. |
 | [`code-documentation-simplification`](skills/code-documentation-simplification) | Scans code comments and docstrings to eliminate procedural re-narration and reduce line count, distilling them into clear domain invariants and design rationale grounded in Domain-Driven Design. |
+| [`adr-authoring`](skills/adr-authoring) | Guides the drafting and review of Architecture Decision Records (ADRs) with explicit invariants, consequences, and system abstentions. |
 
 ## Install
 
