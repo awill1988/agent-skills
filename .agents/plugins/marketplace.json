@@ -1,0 +1,20 @@
+{
+  "name": "awill1988-agent-skills",
+  "interface": {
+    "displayName": "Engineering and Documentation Skills"
+  },
+  "plugins": [
+    {
+      "name": "awill1988-agent-skills",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

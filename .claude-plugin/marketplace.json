@@ -1,5 +1,5 @@
 {
-  "name": "agent-skills",
+  "name": "awill1988-agent-skills",
   "owner": {
     "name": "awill1988",
     "url": "https://github.com/awill1988"
@@ -11,33 +11,48 @@
   "plugins": [
     {
       "name": "pr-stacks",
-      "source": "./skills/pr-stacks",
+      "displayName": "Stacked Pull Requests",
+      "source": "./",
+      "skills": ["./skills/pr-stacks"],
       "description": "Index stacked pull requests across an org and write the message that asks for review.",
-      "category": "development"
+      "category": "development",
+      "keywords": ["stacked PRs", "review order", "review requests"]
     },
     {
       "name": "daily-standup",
-      "source": "./skills/daily-standup",
+      "displayName": "Daily Standup",
+      "source": "./",
+      "skills": ["./skills/daily-standup"],
       "description": "Build a standup report from what actually happened, with catch-up mode after a gap in activity.",
-      "category": "productivity"
+      "category": "productivity",
+      "keywords": ["standup", "activity summary", "catch-up"]
     },
     {
       "name": "publishing-docs",
-      "source": "./skills/publishing-docs",
-      "description": "Steers a draft of technical documentation into a register that teaches before publication.",
-      "category": "documentation"
+      "displayName": "Technical Documentation",
+      "source": "./",
+      "skills": ["./skills/publishing-docs"],
+      "description": "Simplifies and consolidates technical documents while preserving decisions and evidence, then prepares them for a review audience.",
+      "category": "documentation",
+      "keywords": ["technical writing", "document simplification", "consolidation", "design docs", "RFC"]
     },
     {
       "name": "code-documentation-simplification",
-      "source": "./skills/code-documentation-simplification",
-      "description": "Scans code comments and docstrings to eliminate procedural re-narration and reduce line count, distilling them into clear domain invariants.",
-      "category": "development"
+      "displayName": "Code Comments and Docstrings",
+      "source": "./",
+      "skills": ["./skills/code-documentation-simplification"],
+      "description": "Simplifies source code comments and docstrings into domain invariants and design intent. Excludes external Markdown documents and RFCs.",
+      "category": "development",
+      "keywords": ["comments", "docstrings", "invariants", "code documentation"]
     },
     {
       "name": "adr-authoring",
-      "source": "./skills/adr-authoring",
-      "description": "Guides the authoring and review of Architecture Decision Records (ADRs) with explicit invariants and abstention modeling.",
-      "category": "development"
+      "displayName": "Architecture Decision Records",
+      "source": "./",
+      "skills": ["./skills/adr-authoring"],
+      "description": "Authors, consolidates, and reviews architecture decision records with explicit invariants, consequences, and historical supersession.",
+      "category": "documentation",
+      "keywords": ["architecture", "ADR", "decision records", "consolidation", "supersession"]
     }
   ]
 }
