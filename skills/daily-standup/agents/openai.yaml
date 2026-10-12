@@ -1,0 +1,4 @@
+interface:
+  display_name: "Daily Standup"
+  short_description: "Build an evidence-based standup or catch-up report"
+  default_prompt: "Use $daily-standup to reconstruct my previous working day and prepare a standup report."

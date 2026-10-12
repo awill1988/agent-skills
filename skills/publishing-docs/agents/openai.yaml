@@ -1,0 +1,4 @@
+interface:
+  display_name: "Technical Documentation"
+  short_description: "Simplify and consolidate technical documents for readers"
+  default_prompt: "Use $publishing-docs to simplify these documents while preserving decisions, qualifications, and evidence."

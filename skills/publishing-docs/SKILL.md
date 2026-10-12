@@ -3,7 +3,8 @@ name: publishing-docs
 description: >-
   Steers the writing of technical documentation that is about to be published —
   design docs, decision records, RFCs, architecture pages, proposals headed for
-  a wiki or a review audience. Restructures a draft into a register that
+  a wiki or a review audience. Simplifies and consolidates overlapping documents
+  while preserving decisions and evidence. Restructures a draft into a register that
   teaches: define terms before using them, survey alternatives fairly, hedge
   what is unproven, and demote detail to appendices. Use before publishing,
   posting, or substantially rewriting any document that people beyond the
@@ -37,7 +38,24 @@ different operations. When a draft is too long, the correction is not
 compression — it is reordering the material so that each sentence lands on a
 reader who is prepared for it.
 
-## First, identify the audience
+## Simplify the structure
+
+Before editing sentences, identify the reader's question and the document that
+owns its answer. Inspect related documents for duplicated explanations or a
+single decision scattered across files. Consolidate overlapping drafts when
+readers would otherwise have to reconstruct that decision themselves.
+
+Keep distinct decisions and established historical records independently
+addressable. Deferred research can be a clearly labeled section or appendix;
+another platform or implementation phase alone does not require another file.
+For example, a shared library decision can contain research on a future proxy
+without implying that deploying the proxy has been approved.
+
+Preserve constraints, qualifications, alternatives, and supporting evidence.
+Repair links and references when moving material. Judge simplification by how
+much reconstruction the reader must do, not by a target file or word count.
+
+## Identify the audience
 
 If the only readers are the implementers on the same team, a spec is the right
 form; stop here and publish the spec. This skill applies when the document
@@ -108,10 +126,13 @@ who reached the end just read the summary.
 ## When rewriting an existing document
 
 A rewrite for audience must be verifiably substance-preserving. Before
-publishing, diff the decision content of old against new: the same components,
-the same contracts, the same scopes, the same outbound links. Every change
-should be rhetorical. If the diff shows a decision changed, that is a revision
-wearing a rewrite's clothes — split it out and say so.
+publishing, compare the decision content of old against new: preserve components,
+contracts, scope, qualifications, and source evidence. Update links to moved
+material and check inbound references. Structural consolidation may change
+headings and file boundaries without changing the decision. If a decision
+changes, identify that substantive revision separately from the editorial work;
+it needs another record only when decision ownership or historical supersession
+requires one.
 
 Rewrite in the document's original tense, as if it had always been written
 this way. No storytelling about prior drafts, no "previously this page said" —

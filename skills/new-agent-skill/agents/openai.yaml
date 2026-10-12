@@ -1,0 +1,4 @@
+interface:
+  display_name: "New Agent Skill (awill1988)"
+  short_description: "Interview, scaffold, and register a reusable agent skill"
+  default_prompt: "Use $new-agent-skill to interview me and create a skill in my local awill1988/agent-skills checkout."

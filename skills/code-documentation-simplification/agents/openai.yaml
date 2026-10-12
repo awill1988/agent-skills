@@ -1,0 +1,4 @@
+interface:
+  display_name: "Code Comments and Docstrings"
+  short_description: "Distill code comments and docstrings into design intent"
+  default_prompt: "Use $code-documentation-simplification to simplify comments and docstrings while preserving domain invariants."

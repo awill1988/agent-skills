@@ -1,7 +1,7 @@
 ---
 name: code-documentation-simplification
 description: >-
-  Audit, simplify, and distill source code comments and docstrings across polyglot
+  Audits, simplifies, and distills source code comments and docstrings across polyglot
   codebases. Eliminates procedural step-by-step re-narration, purges redundant
   signature echoes, and distills lengthy explanations into concise domain invariants,
   seam contracts, and design intent. Grounded in Eric Evans' Domain-Driven Design

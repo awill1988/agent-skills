@@ -1,0 +1,4 @@
+interface:
+  display_name: "Architecture Decision Records"
+  short_description: "Author, consolidate, and supersede architectural decisions"
+  default_prompt: "Use $adr-authoring to review these architectural choices and decide which records to extend, consolidate, or create."

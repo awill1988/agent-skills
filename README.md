@@ -1,29 +1,108 @@
 # agent-skills
 
-Agent Skills for coding agents — portable across Claude Code, Claude.ai, and any
+Agent Skills for coding agents — packaged for Claude Code, Codex, and
+Antigravity (AGY), and portable to any
 tool that implements the [Agent Skills](https://agentskills.io) standard.
-
-## Skills
-
-| skill | what it does |
-|---|---|
-| [`pr-stacks`](skills/pr-stacks) | Indexes stacked pull requests across an org and writes the message that asks for review — merge order, what each PR does, its tracker ticket, and where review has stalled. |
-| [`daily-standup`](skills/daily-standup) | Reconstructs a working day from its evidence — PRs, tracker transitions, coding-session nuance — and switches to catch-up mode when you have been away. |
-| [`publishing-docs`](skills/publishing-docs) | Steers a draft of technical documentation into a register that teaches — define terms before claims, survey alternatives fairly, hedge what is unproven, demote detail — before it is published. |
-| [`code-documentation-simplification`](skills/code-documentation-simplification) | Scans code comments and docstrings to eliminate procedural re-narration and reduce line count, distilling them into clear domain invariants and design rationale grounded in Domain-Driven Design. |
-| [`adr-authoring`](skills/adr-authoring) | Guides the drafting and review of Architecture Decision Records (ADRs) with explicit invariants, consequences, and system abstentions. |
 
 ## Install
 
-**As a plugin marketplace (Claude Code):**
+### Claude Code
+
+1. Register the collection and install one skill in Claude Code:
 
 ```
 /plugin marketplace add awill1988/agent-skills
-/plugin install pr-stacks@agent-skills
+/plugin install adr-authoring@awill1988-agent-skills
 ```
 
-**Manually:** copy a skill folder into `.claude/skills/` in your project, or
-`~/.claude/skills/` for every project.
+2. Open `/plugin` and confirm `adr-authoring` is installed. Restart the session
+   if the skill does not appear.
+3. Ask: “Use the adr-authoring skill to decide whether these two architectural
+   choices belong in one ADR.” Supply the choices or document paths.
+
+Replace `adr-authoring` with any identifier in the skills table to install
+another skill individually.
+
+### Codex
+
+1. Install the collection from your terminal:
+
+```sh
+codex --enable plugins plugin marketplace add awill1988/agent-skills
+codex --enable plugins plugin add awill1988-agent-skills@awill1988-agent-skills
+```
+
+2. Run `codex --enable plugins plugin list` to verify installation, then start
+   `codex --enable plugins` and open `/skills`.
+3. Ask: “Use $adr-authoring to decide whether these two architectural choices
+   belong in one ADR.” Supply the choices or document paths.
+
+Codex installs the complete bundle. The commands enable plugin support for
+clients where that feature is gated.
+
+### Antigravity (AGY)
+
+1. Install the collection from your terminal:
+
+```sh
+agy plugin install https://github.com/awill1988/agent-skills
+```
+
+2. Run `agy plugin list` and confirm the `awill1988-agent-skills` bundle and its
+   skills appear. Start a new session if needed.
+3. Ask: “Use the adr-authoring skill to decide whether these two architectural
+   choices belong in one ADR.” Supply the choices or document paths.
+
+AGY installs the complete bundle. These commands install from GitHub; they do
+not depend on an official directory listing. Requires the relevant client
+installed and configured; the creator additionally needs Python 3, Git, and uv.
+
+## Skills
+
+| Display name | Identifier | Purpose |
+|---|---|---|
+| New Agent Skill (awill1988) | [`new-agent-skill`](skills/new-agent-skill) | Interview, scaffold, and register a new skill in your remembered local clone. |
+| Architecture Decision Records | [`adr-authoring`](skills/adr-authoring) | Author or consolidate ADRs while preserving independent decisions and history. |
+| Technical Documentation | [`publishing-docs`](skills/publishing-docs) | Simplify and consolidate technical documents without changing decisions or evidence. |
+| Code Comments and Docstrings | [`code-documentation-simplification`](skills/code-documentation-simplification) | Distill source comments into domain invariants and design intent. |
+| Daily Standup | [`daily-standup`](skills/daily-standup) | Reconstruct your working day or prepare a catch-up after absence. |
+| Stacked Pull Requests | [`pr-stacks`](skills/pr-stacks) | Explain stack review order and draft review requests. |
+
+## Create a skill
+
+In Claude, first install `new-agent-skill@awill1988-agent-skills`; Codex and AGY
+already include it in the bundle. Ask:
+
+> Use the new-agent-skill skill to interview me and create a reusable workflow
+> for reviewing database migrations in my agent-skills collection.
+
+In Codex, you can explicitly select `$new-agent-skill`. On first use the skill
+asks where this repository is cloned and remembers the location across clients
+on the same machine. If you need a clone, it helps choose the destination.
+It creates boilerplate, interviews you about the workflow, registers the
+finished skill, and validates it. Committing and publishing remain explicit.
+
+## Existing installations
+
+The Claude marketplace identifier changed from `agent-skills` to
+`awill1988-agent-skills`; repository and skill identifiers remain stable.
+Uninstall old `<skill>@agent-skills` installations, remove the old marketplace
+with `/plugin marketplace remove agent-skills`, then use the installation
+commands above.
+
+## Manual installation
+
+**Individual skill folders:** copy the chosen `skills/<slug>/` directory,
+including its supporting files, into the appropriate workspace directory:
+
+| Client | Workspace skill directory |
+|---|---|
+| Claude Code | `.claude/skills/` |
+| Codex | `.agents/skills/` |
+| AGY | `.agents/skills/` |
+
+Maintainers: see [the publication ADR](docs/adr/0001-publish-portable-agent-skills.md)
+for packaging, release verification, and CI gates.
 
 ## pr-stacks
 
@@ -122,17 +201,22 @@ named-enemy headline and teaches nothing. This skill steers a draft into a third
 register — the one a good textbook introduction uses: **summarize, introduce,
 invite.**
 
-It works as eight ordered transformations, not a checklist: teach before
+It first inspects document ownership and consolidates overlapping drafts so a
+reader can follow a decision without reconstructing it across files. Deferred
+research can remain inside the record owning the current decision; independent
+decisions and relied-upon history retain their own records.
+
+It then applies eight ordered transformations: teach before
 claiming, picture → mechanism → number, find the narrative turn, survey
 alternatives instead of dispatching them, demote detail to an appendix, hedge as
 content, cite only where it teaches, end with invitations. A typical draft needs
 three or four of them.
 
 **Rewrites must be substance-preserving.** Before publishing a rewrite, the
-skill has you diff the decision content — same components, same contracts, same
-scopes, same links — so that every change is verifiably rhetorical. A decision
-that changed under the rewrite is a revision wearing a rewrite's clothes, and
-gets split out.
+skill has you compare components, contracts, scope, qualifications, and source
+evidence, and repair links when material moves. Substantive decision changes
+are identified separately from editorial changes; a separate file is warranted
+by independent decision ownership or historical supersession.
 
 A full worked before/after in a generic domain lives in
 [`references/example-rewrite.md`](skills/publishing-docs/references/example-rewrite.md).
@@ -167,7 +251,17 @@ folder containing `SKILL.md` with YAML frontmatter, plus optional `scripts/`,
 
 Shell scripts are `shellcheck`-clean.
 
-Pull requests are automatically audited in CI against the Agent Skills specification and progressive disclosure standards using `python3 tools/skill_reviewer/skill_review.py`.
+Validate local changes with:
+
+```sh
+uv run --with-requirements tools/requirements.txt python tools/validate_collection.py
+uv run --with-requirements tools/requirements.txt python -m unittest discover -s tools -p 'test_*.py'
+uv run --with-requirements tools/requirements.txt python -m unittest discover -s tools/skill_reviewer -p 'test_*.py'
+python3 -m unittest discover -s skills/code-documentation-simplification/scripts -p 'test_*.py'
+```
+
+CI runs deterministic collection checks on pull requests, including drafts.
+The separate skill review evaluates non-draft pull requests with a local model.
 
 ## License
 

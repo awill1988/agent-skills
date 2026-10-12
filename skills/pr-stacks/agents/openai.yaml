@@ -1,0 +1,4 @@
+interface:
+  display_name: "Stacked Pull Requests"
+  short_description: "Explain review order and prepare stacked PR review requests"
+  default_prompt: "Use $pr-stacks to summarize the pull request stacks for the specified organization and draft review requests."
