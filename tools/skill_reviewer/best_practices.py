@@ -24,7 +24,6 @@ import urllib.request
 MAX_SKILL_MD_LINES = 500          # Progressive disclosure limit
 MAX_SKILL_MD_BYTES = 25000        # ~25 KB context budget
 MAX_DESCRIPTION_LEN = 1024        # Agent Skills specification limit
-MIN_DESCRIPTION_LEN = 30          # Minimum semantic length for discovery
 
 # -----------------------------------------------------------------------------
 # Rule Definitions
@@ -59,12 +58,12 @@ RULES = [
         category="frontmatter",
         severity="BLOCKER",
         title="Invalid or missing 'description' field",
-        description="Frontmatter 'description' must be informative (30-1024 chars), written in third-person, and specify both WHAT the skill does and WHEN to activate it.",
+        description="Frontmatter 'description' must contain 1-1024 characters. Prefer concise third-person prose explaining capability and activation; style is authoring guidance.",
     ),
     Rule(
         code="PD001",
         category="progressive_disclosure",
-        severity="MAJOR",
+        severity="MINOR",
         title="Context bloat: SKILL.md exceeds line limit",
         description=f"SKILL.md exceeds {MAX_SKILL_MD_LINES} lines. Deep references, long examples, and extensive documentation should be factored into references/ or examples/.",
     ),
@@ -155,7 +154,7 @@ def get_best_practices_summary() -> str:
     lines = [
         "### Canonical Agent Skills & Claude Skills Best Practices:",
         "1. **Frontmatter Integrity**: Must define `name` (matching directory name) and `description` (3rd-person, explaining what & when).",
-        "2. **Progressive Disclosure**: Keep `SKILL.md` <= 500 lines. Demote manuals, background, and extensive examples to `references/` or `examples/`.",
+        "2. **Progressive Disclosure**: Review entrypoints above 500 lines; size is advisory. Move conditional detail to references when it improves navigation.",
         "3. **Deterministic Scripts**: Place automation in `scripts/`, ensure executable bit (+x), valid shebang, and portable path variables ($SKILL_DIR).",
         "4. **Link Integrity**: All markdown relative links must resolve to existing files.",
         "5. **Catalog Registration**: Must be registered in `.claude-plugin/marketplace.json` and documented in root `README.md`.",

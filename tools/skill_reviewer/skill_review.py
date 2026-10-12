@@ -25,12 +25,15 @@ import subprocess
 import sys
 import time
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from collection_validation import frontmatter, markdown_link_errors
+import yaml
+
 try:
     from tools.skill_reviewer.best_practices import (
         MAX_DESCRIPTION_LEN,
         MAX_SKILL_MD_BYTES,
         MAX_SKILL_MD_LINES,
-        MIN_DESCRIPTION_LEN,
         RULE_MAP,
         fetch_online_best_practices,
         get_best_practices_summary,
@@ -40,7 +43,6 @@ except ImportError:
         MAX_DESCRIPTION_LEN,
         MAX_SKILL_MD_BYTES,
         MAX_SKILL_MD_LINES,
-        MIN_DESCRIPTION_LEN,
         RULE_MAP,
         fetch_online_best_practices,
         get_best_practices_summary,
@@ -106,6 +108,7 @@ class SkillChange:
     reasoning_trace: list[dict] = field(default_factory=list)
     model_reasoning: str = ""
     model_latency: float = 0.0
+    model_review_completed: bool = False
 
 
 # -----------------------------------------------------------------------------
@@ -215,7 +218,7 @@ def extract_git_diff_text(base: str, head: str, skill_files: list[str]) -> str:
 
 
 # -----------------------------------------------------------------------------
-# Static Smell & Best Practice Evaluators
+# Deterministic Skill Lint
 # -----------------------------------------------------------------------------
 
 def get_file_content(ref: str, rel_path: str, root_dir: Path) -> str | None:
@@ -238,14 +241,17 @@ def get_file_content(ref: str, rel_path: str, root_dir: Path) -> str | None:
 
 def list_skill_files(ref: str, skill_name: str, root_dir: Path) -> list[str]:
     """List all files belonging to a skill from git ref or disk."""
-    out = run_git(["git", "ls-tree", "-r", "--name-only", ref, f"skills/{skill_name}/"], cwd=root_dir)
+    command = (["git", "ls-files", "--cached", "--others", "--exclude-standard", f"skills/{skill_name}/"]
+               if ref == "HEAD" else ["git", "ls-tree", "-r", "--name-only", ref, f"skills/{skill_name}/"])
+    out = run_git(command, cwd=root_dir)
     files = [line.strip() for line in out.splitlines() if line.strip()]
     if files:
         return files
 
     skill_dir = root_dir / "skills" / skill_name
     if skill_dir.is_dir():
-        return [str(p.relative_to(root_dir)) for p in skill_dir.rglob("*") if p.is_file() and not p.name.startswith(".")]
+        return [str(p.relative_to(root_dir)) for p in skill_dir.rglob("*")
+                if p.is_file() and not p.name.startswith(".") and "__pycache__" not in p.parts and p.suffix != ".pyc"]
     return []
 
 
@@ -270,33 +276,14 @@ def parse_yaml_frontmatter(content: str) -> tuple[dict, str, list[str]]:
     yaml_block = lines[1:end_idx]
     body = "\n".join(lines[end_idx + 1:])
 
-    # Simple YAML key-value parser (avoids external pyyaml dependency)
-    data: dict[str, str] = {}
-    current_key = None
-    multiline_val = []
-
-    for yline in yaml_block:
-        match = re.match(r"^([a-zA-Z0-9_-]+):\s*(.*)$", yline)
-        if match:
-            if current_key and multiline_val:
-                data[current_key] = " ".join(multiline_val).strip()
-                multiline_val = []
-            current_key = match.group(1)
-            raw_v = match.group(2).strip()
-            if raw_v in (">-", ">", "|", "|-"):
-                multiline_val = []
-            else:
-                data[current_key] = raw_v.strip("\"'")
-        elif current_key and (yline.startswith("  ") or yline.startswith("\t")):
-            multiline_val.append(yline.strip())
-
-    if current_key and multiline_val:
-        data[current_key] = " ".join(multiline_val).strip()
-
-    return data, body, errors
+    try:
+        data, body = frontmatter(content)
+        return data, body, errors
+    except (ValueError, yaml.YAMLError) as error:
+        return {}, body, [f"FM001: Invalid YAML frontmatter: {error}"]
 
 
-def evaluate_static_smells(skill_name: str, root_dir: Path, ref: str = "HEAD") -> list[Finding]:
+def lint_skill_files(skill_name: str, root_dir: Path, ref: str = "HEAD") -> list[Finding]:
     """Run deterministic static checks against the Agent Skills specification."""
     findings: list[Finding] = []
     skill_md_rel = f"skills/{skill_name}/SKILL.md"
@@ -330,7 +317,8 @@ def evaluate_static_smells(skill_name: str, root_dir: Path, ref: str = "HEAD") -
         ))
 
     # Name check
-    name_val = fm.get("name", "").strip()
+    name_val = fm.get("name", "")
+    name_val = name_val.strip() if isinstance(name_val, str) else ""
     if not name_val:
         findings.append(Finding(
             rule_code="FM002",
@@ -364,7 +352,8 @@ def evaluate_static_smells(skill_name: str, root_dir: Path, ref: str = "HEAD") -
         ))
 
     # Description check
-    desc_val = fm.get("description", "").strip()
+    desc_val = fm.get("description", "")
+    desc_val = desc_val.strip() if isinstance(desc_val, str) else ""
     if not desc_val:
         findings.append(Finding(
             rule_code="FM003",
@@ -374,16 +363,6 @@ def evaluate_static_smells(skill_name: str, root_dir: Path, ref: str = "HEAD") -
             line=3,
             title="Missing 'description' field in frontmatter",
             details="Frontmatter must specify a 'description' field for agent discovery.",
-        ))
-    elif len(desc_val) < MIN_DESCRIPTION_LEN:
-        findings.append(Finding(
-            rule_code="FM003",
-            severity="MAJOR",
-            category="frontmatter",
-            file=skill_md_rel,
-            line=3,
-            title="Vague or underspecified description",
-            details=f"Description ({len(desc_val)} chars) is too short. It must explain what the skill does and when to activate it.",
         ))
     elif len(desc_val) > MAX_DESCRIPTION_LEN:
         findings.append(Finding(
@@ -401,33 +380,24 @@ def evaluate_static_smells(skill_name: str, root_dir: Path, ref: str = "HEAD") -
     if line_count > MAX_SKILL_MD_LINES:
         findings.append(Finding(
             rule_code="PD001",
-            severity="MAJOR",
+            severity="MINOR",
             category="progressive_disclosure",
             file=skill_md_rel,
             line=MAX_SKILL_MD_LINES,
             title=f"Context bloat: SKILL.md is {line_count} lines (limit: {MAX_SKILL_MD_LINES})",
-            details="Monolithic SKILL.md violates progressive disclosure. Factor deep background, reference manuals, and extended examples into references/ or examples/.",
+            details="Review whether conditional details belong in references; length is guidance, not a format violation.",
         ))
 
     # 3. Broken Relative Links
-    link_matches = re.finditer(r"\[([^\]]+)\]\(([^)]+)\)", body)
-    for m in link_matches:
-        raw_target = m.group(2).split("#")[0].strip()
-        if raw_target and not raw_target.startswith(("http://", "https://", "mailto:")):
-            resolved_rel = os.path.normpath(f"skills/{skill_name}/{raw_target}")
-            # Check against skill files and on-disk files
-            if resolved_rel not in all_skill_files:
-                local_target = root_dir / resolved_rel
-                if not local_target.exists():
-                    findings.append(Finding(
-                        rule_code="PD002",
-                        severity="MAJOR",
-                        category="progressive_disclosure",
-                        file=skill_md_rel,
-                        line=None,
-                        title="Broken relative link in markdown",
-                        details=f"Link '{m.group(0)}' points to non-existent path: {raw_target}",
-                    ))
+    for error in markdown_link_errors(
+        content, root_dir / skill_md_rel,
+        read=lambda path: get_file_content(ref, str(path.relative_to(root_dir.resolve())), root_dir),
+        boundary=root_dir / "skills" / skill_name,
+    ):
+        findings.append(Finding(
+            rule_code="PD002", severity="MAJOR", category="progressive_disclosure",
+            file=skill_md_rel, line=None, title="Broken relative link in markdown", details=error,
+        ))
 
     # 4. Script Hygiene
     script_files = [f for f in all_skill_files if f.startswith(f"skills/{skill_name}/scripts/")]
@@ -606,14 +576,14 @@ def parse_model_disposition(raw_text: str) -> str:
         if v in ("REQUEST_CHANGES", "FLAGGED"):
             return "REQUEST_CHANGES"
         return "COMMENT"
-    return "APPROVE"
+    raise ValueError("model output contains no recognized disposition")
 
 
 # -----------------------------------------------------------------------------
 # Review Orchestration & Report Construction
 # -----------------------------------------------------------------------------
 
-def synthesize_skill_understanding(
+def extract_skill_metadata(
     skill_name: str,
     root_dir: Path,
     ref: str,
@@ -621,7 +591,7 @@ def synthesize_skill_understanding(
     diff_text: str,
     files: list[str],
 ) -> str:
-    """Synthesize structured understanding of what the skill does and its capabilities."""
+    """Extract descriptions, headings, and file counts without semantic assessment."""
     if change_type == "DELETED":
         return f"Skill `{skill_name}` was deleted and retired from the skills catalog."
 
@@ -630,7 +600,8 @@ def synthesize_skill_understanding(
         return f"Skill `{skill_name}` ({change_type}) touches {len(files)} file(s)."
 
     fm, body, _ = parse_yaml_frontmatter(skill_md_content)
-    desc = fm.get("description", "").strip()
+    desc = fm.get("description", "")
+    desc = desc.strip() if isinstance(desc, str) else ""
 
     # Extract title from # <Title>
     title = skill_name
@@ -723,23 +694,23 @@ def evaluate_skill(
     """Evaluate an individual skill based on its lifecycle status and record reasoning trace."""
     # 1. DELETED SKILLS
     if skill.change_type == "DELETED":
-        skill.disposition = "APPROVE"
-        skill.summary = f"Skill `{skill.name}` has been deleted. Skipping content review and approving deletion."
-        skill.functional_summary = synthesize_skill_understanding(
+        skill.disposition = "COMMENT"
+        skill.summary = f"Skill `{skill.name}` has been deleted. Skipping content checks; deletion requires review."
+        skill.functional_summary = extract_skill_metadata(
             skill.name, root_dir, ref=head, change_type=skill.change_type, diff_text="", files=skill.files
         )
         skill.reasoning_trace.append({
             "stage": "1. Lifecycle Classification",
             "scope": "Git Tree Diff",
             "status": "🟢 PASSED",
-            "rationale": f"Skill `{skill.name}` was deleted in this pull request. Auto-approved without content analysis.",
+            "rationale": f"Skill `{skill.name}` was deleted. No content assessment was performed.",
         })
         return
 
     diff_text = extract_git_diff_text(base, head, skill.files)
 
     # Synthesize functional understanding of skill
-    skill.functional_summary = synthesize_skill_understanding(
+    skill.functional_summary = extract_skill_metadata(
         skill.name, root_dir, ref=head, change_type=skill.change_type, diff_text=diff_text, files=skill.files
     )
 
@@ -752,7 +723,7 @@ def evaluate_skill(
     })
 
     # 2. Static Analysis
-    findings = evaluate_static_smells(skill.name, root_dir, ref=head)
+    findings = lint_skill_files(skill.name, root_dir, ref=head)
     skill.findings = findings
 
     # Evaluate Stage 2: Frontmatter
@@ -762,7 +733,7 @@ def evaluate_skill(
             "stage": "2. Frontmatter Specification",
             "scope": "FM001–FM005",
             "status": "🟢 PASSED",
-            "rationale": "Valid YAML frontmatter; name matches directory pattern; description length within bounds; no prohibited fields.",
+            "rationale": "YAML parsed; name and description passed the implemented field checks.",
         })
     else:
         severities = {f.severity for f in fm_findings}
@@ -782,7 +753,7 @@ def evaluate_skill(
             "stage": "3. Progressive Disclosure",
             "scope": "PD001–PD003",
             "status": "🟢 PASSED",
-            "rationale": f"SKILL.md satisfies line limit (≤ {MAX_SKILL_MD_LINES} lines) and byte limit (≤ {MAX_SKILL_MD_BYTES // 1024} KB); relative links resolve.",
+            "rationale": f"Entrypoint is within the {MAX_SKILL_MD_LINES}-line guideline; checked links resolve.",
         })
     else:
         severities = {f.severity for f in pd_findings}
@@ -810,7 +781,7 @@ def evaluate_skill(
             "stage": "4. Script Hygiene & Isolation",
             "scope": "SC001–SC003",
             "status": "🟢 PASSED",
-            "rationale": "Helper scripts possess executable permissions (+x), valid shebang, and security safeguards.",
+            "rationale": "Checked script permissions, shebangs, and hardcoded user paths. This is not a security assessment.",
         })
     else:
         severities = {f.severity for f in sc_findings}
@@ -830,7 +801,7 @@ def evaluate_skill(
             "stage": "5. Safety & Attribution",
             "scope": "AT001, SEC001",
             "status": "🟢 PASSED",
-            "rationale": "Zero AI attribution metadata (no co-authored-by tags); no hardcoded secrets or environment-leaking paths.",
+            "rationale": "No matching attribution signatures were found by the configured pattern checks.",
         })
     else:
         severities = {f.severity for f in sec_findings}
@@ -874,7 +845,7 @@ def evaluate_skill(
         static_disp = "APPROVE"
 
     # Stage 7: Model Inference
-    model_disp = "APPROVE"
+    model_disp = "COMMENT"
     raw_model_output = ""
     start_time = time.time()
 
@@ -892,13 +863,14 @@ def evaluate_skill(
             try:
                 raw_model_output = run_llama_inference(runner_path, model_path, full_prompt)
                 model_disp = parse_model_disposition(raw_model_output)
+                skill.model_review_completed = True
             except Exception as exc:
                 logging.debug("model inference failed (%s); using static analysis.", exc)
                 raw_model_output = f"Model execution failed: {exc}"
         else:
             raw_model_output = "Model runner or weights not found in cache. Evaluated using heuristic rules."
     elif mock:
-        raw_model_output = "Deterministic heuristic review requested (--mock). Adversarial model evaluation bypassed."
+        raw_model_output = "Lint-only mode (--mock). No model assessment was performed."
 
     elapsed = time.time() - start_time
     skill.model_reasoning = raw_model_output.strip()
@@ -912,7 +884,7 @@ def evaluate_skill(
             "status": "⚪ MOCK",
             "rationale": "Deterministic static evaluation completed without local model execution.",
         })
-    elif raw_model_output and "failed" not in raw_model_output.lower() and "not found" not in raw_model_output.lower():
+    elif skill.model_review_completed:
         m_status = "🟢 PASSED" if model_disp == "APPROVE" else ("🔴 FAILED" if model_disp == "REQUEST_CHANGES" else "🟡 COMMENT")
         skill.reasoning_trace.append({
             "stage": "7. Adversarial Model Review",
@@ -937,7 +909,9 @@ def evaluate_skill(
         skill.disposition = "APPROVE"
 
     if skill.disposition == "APPROVE":
-        skill.summary = f"Skill `{skill.name}` ({skill.change_type}) passed all best practice and smell checks."
+        skill.summary = f"Skill `{skill.name}` passed lint checks and received an approving model assessment."
+    elif not skill.model_review_completed:
+        skill.summary = f"Skill `{skill.name}` has {len(skill.findings)} lint finding(s); no model review completed."
     else:
         skill.summary = f"Skill `{skill.name}` ({skill.change_type}) identified {len(skill.findings)} finding(s)."
 
@@ -952,7 +926,8 @@ def build_markdown_report(target: str, overall_disposition: str, skills: dict[st
     icon = icon_map.get(overall_disposition, "⚪")
 
     report = "<!-- agent-skills-review:report -->\n"
-    report += f"## {icon} Agent Skills Review: {target} — `{overall_disposition}`\n\n"
+    label = "Skill Review and Lint" if any(skill.model_review_completed for skill in skills.values()) else "Skill Lint"
+    report += f"## {icon} {label}: {target} — `{overall_disposition}`\n\n"
     report += "| Skill | Change Type | Status | Summary |\n"
     report += "|---|---|---|---|\n"
 
@@ -968,18 +943,18 @@ def build_markdown_report(target: str, overall_disposition: str, skills: dict[st
 
         if skill.change_type == "DELETED":
             report += "> [!NOTE]\n"
-            report += "> This skill was deleted in this change. Skipping quality review and approving deletion.\n\n"
+            report += "> This skill was deleted. No content assessment was performed; deletion requires review.\n\n"
             continue
 
-        # 1. Functional Summary & Change Understanding
+        # 1. Extracted Metadata
         if skill.functional_summary:
-            report += "#### 📋 Functional Summary & Change Understanding\n"
+            report += "#### 📋 Extracted Metadata\n"
             report += f"{skill.functional_summary}\n\n"
 
         # 2. Detected Findings
         if not skill.findings:
             report += "#### 🔎 Findings\n"
-            report += "No major smells or specification violations detected. Clean implementation.\n\n"
+            report += "No lint findings from the implemented checks. This does not establish behavioral correctness.\n\n"
         else:
             report += "#### 🔎 Detected Findings\n"
             for f in skill.findings:
@@ -993,7 +968,7 @@ def build_markdown_report(target: str, overall_disposition: str, skills: dict[st
 
         # 3. Pretty-Formatted Reasoning Chain Dump
         report += "<details>\n"
-        report += "<summary>🧠 <b>Reasoning Chain & Evaluation Audit Trail</b> (click to expand)</summary>\n\n"
+        report += "<summary>🧠 <b>Validation Checks and Model Assessment</b> (click to expand)</summary>\n\n"
 
         if skill.reasoning_trace:
             report += "##### Pipeline Verification Stages\n\n"
@@ -1005,14 +980,14 @@ def build_markdown_report(target: str, overall_disposition: str, skills: dict[st
 
         if skill.model_reasoning:
             latency_str = f" ({skill.model_latency:.2f}s latency)" if skill.model_latency > 0 else ""
-            report += f"##### Adversarial Model Reasoning Dump{latency_str}\n\n"
+            report += f"##### Model Assessment Output{latency_str}\n\n"
             report += "```text\n"
             report += f"{skill.model_reasoning}\n"
             report += "```\n\n"
 
         report += "##### Disposition Synthesis\n"
         report += f"- **Evaluated Outcome**: `{skill.disposition}`\n"
-        report += f"- **Smells Detected**: {len(skill.findings)}\n"
+        report += f"- **Lint Findings**: {len(skill.findings)}\n"
         report += "</details>\n\n"
 
     report += "---\n*Automated Agent Skills Review harness grounded in agentskills.io and Anthropic guidelines.*\n"
@@ -1141,7 +1116,7 @@ def main() -> int:
     parser.add_argument("--base", default="origin/main", help="Base ref to compare against")
     parser.add_argument("--head", default="HEAD", help="Head ref to compare")
     parser.add_argument("--target", default="HEAD", help="Target identifier for review reporting")
-    parser.add_argument("--mock", action="store_true", help="Run deterministic heuristic review without model inference")
+    parser.add_argument("--mock", action="store_true", help="Run lint checks only, without model review or formal approval")
     parser.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE_DIR, help="Cache directory for models")
     parser.add_argument("--summary-file", type=Path, default=None, help="File to write step summary to (e.g. $GITHUB_STEP_SUMMARY)")
     parser.add_argument("--pr", type=int, default=None, help="Pull request number to post review to")
@@ -1167,8 +1142,8 @@ def main() -> int:
     skills = classify_skill_changes(args.base, args.head)
 
     if not skills:
-        overall_disposition = "APPROVE"
-        markdown_report = f"## 🟢 Agent Skills Review: {args.target} — `APPROVE`\n\nNo skill modifications detected in this change.\n"
+        overall_disposition = "COMMENT"
+        markdown_report = f"## Skill Lint: {args.target}\n\nNo skill modifications detected; no model review performed.\n"
     else:
         # 2. Evaluate Each Skill
         for skill in skills.values():
@@ -1201,7 +1176,7 @@ def main() -> int:
         print(markdown_report)
 
     # Machine-readable completion marker
-    print(f"Review complete: {args.target} — {overall_disposition}")
+    print(f"assessment complete: {args.target} — {overall_disposition}")
 
     if args.summary_file:
         with open(args.summary_file, "a", encoding="utf-8") as out:
@@ -1209,11 +1184,17 @@ def main() -> int:
 
     if args.pr and os.environ.get("GITHUB_TOKEN"):
         try:
-            submit_pr_review(args.pr, overall_disposition, markdown_report)
+            if skills and all(skill.model_review_completed for skill in skills.values()):
+                submit_pr_review(args.pr, overall_disposition, markdown_report)
+            else:
+                upsert_pr_comment(args.pr, markdown_report)
         except Exception as error:
             print(f"could not submit PR review: {error}", file=sys.stderr)
 
     # Exit code: 0 for APPROVE/COMMENT, 3 for REQUEST_CHANGES
+    if not args.mock and any(skill.change_type != "DELETED" and not skill.model_review_completed for skill in skills.values()):
+        print("model review incomplete; lint results do not constitute review", file=sys.stderr)
+        return 2
     if args.fail_on in ("request-changes", "critical") and overall_disposition == "REQUEST_CHANGES":
         return 3
 

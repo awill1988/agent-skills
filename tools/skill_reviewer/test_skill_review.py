@@ -8,6 +8,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -16,9 +17,10 @@ from skill_review import (
     SkillChange,
     build_markdown_report,
     evaluate_skill,
-    evaluate_static_smells,
+    lint_skill_files,
     parse_yaml_frontmatter,
-    synthesize_skill_understanding,
+    parse_model_disposition,
+    extract_skill_metadata,
 )
 
 
@@ -46,7 +48,7 @@ Body text here.
         self.assertIn("FM001", errors[0])
 
 
-class SmellEvaluatorTests(unittest.TestCase):
+class SkillLintTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = Path(tempfile.mkdtemp())
         self.skills_dir = self.temp_dir / "skills"
@@ -73,7 +75,7 @@ license: MIT
 Clear instructions for the agent.
 """, encoding="utf-8")
 
-        findings = evaluate_static_smells("valid-skill", self.temp_dir)
+        findings = lint_skill_files("valid-skill", self.temp_dir)
         self.assertEqual(len(findings), 0)
 
     def test_detects_name_mismatch(self) -> None:
@@ -86,7 +88,7 @@ description: A valid description that explains what the skill does and when to a
 # Body
 """, encoding="utf-8")
 
-        findings = evaluate_static_smells("mismatched-dir", self.temp_dir)
+        findings = lint_skill_files("mismatched-dir", self.temp_dir)
         rule_codes = [f.rule_code for f in findings]
         self.assertIn("FM002", rule_codes)
 
@@ -101,7 +103,7 @@ description: A skill that has broken relative markdown links pointing to nowhere
 Read [reference](references/missing.md) and run [script](scripts/missing.sh).
 """, encoding="utf-8")
 
-        findings = evaluate_static_smells("broken-links", self.temp_dir)
+        findings = lint_skill_files("broken-links", self.temp_dir)
         rule_codes = [f.rule_code for f in findings]
         self.assertIn("PD002", rule_codes)
 
@@ -116,7 +118,7 @@ description: A skill that dumps an entire textbook into SKILL.md violating progr
 {bloated_body}
 """, encoding="utf-8")
 
-        findings = evaluate_static_smells("bloated-skill", self.temp_dir)
+        findings = lint_skill_files("bloated-skill", self.temp_dir)
         rule_codes = [f.rule_code for f in findings]
         self.assertIn("PD001", rule_codes)
 
@@ -131,13 +133,31 @@ description: A skill that unfortunately contains co-authored-by agent attributio
 Co-Authored-By: Assistant <ai@example.com>
 """, encoding="utf-8")
 
-        findings = evaluate_static_smells("ai-attributed", self.temp_dir)
+        findings = lint_skill_files("ai-attributed", self.temp_dir)
         rule_codes = [f.rule_code for f in findings]
         self.assertIn("AI001", rule_codes)
 
 
 class LifecycleEvaluationTests(unittest.TestCase):
-    def test_deleted_skill_is_auto_approved_without_review(self) -> None:
+    def test_unstructured_model_output_cannot_approve(self):
+        with self.assertRaises(ValueError):
+            parse_model_disposition("looks fine")
+        self.assertEqual(parse_model_disposition("DISPOSITION: APPROVE"), "APPROVE")
+
+    def test_missing_model_cannot_approve(self):
+        with tempfile.TemporaryDirectory() as directory:
+            skill = SkillChange(name="example", change_type="UPDATED")
+            with patch("skill_review.extract_git_diff_text", return_value="diff"), \
+                 patch("skill_review.lint_skill_files", return_value=[]), \
+                 patch("skill_review.extract_skill_metadata", return_value="metadata"), \
+                 patch("skill_review.resolve_runner", return_value=None):
+                evaluate_skill(skill, "base", "HEAD", Path(directory), False, Path(directory))
+            self.assertEqual(skill.disposition, "COMMENT")
+            self.assertFalse(skill.model_review_completed)
+            report = build_markdown_report("local", skill.disposition, {skill.name: skill})
+            self.assertIn("Skill Lint:", report)
+
+    def test_deleted_skill_is_not_approved_without_review(self) -> None:
         skill = SkillChange(name="old-deprecated-skill", change_type="DELETED")
         evaluate_skill(
             skill=skill,
@@ -147,7 +167,7 @@ class LifecycleEvaluationTests(unittest.TestCase):
             mock=True,
             cache_dir=Path("/cache"),
         )
-        self.assertEqual(skill.disposition, "APPROVE")
+        self.assertEqual(skill.disposition, "COMMENT")
         self.assertEqual(len(skill.findings), 0)
         self.assertIn("deleted", skill.summary)
         self.assertIn("Skipping", skill.summary)
@@ -162,13 +182,13 @@ class LifecycleEvaluationTests(unittest.TestCase):
             mock=True,
             cache_dir=Path("/cache"),
         )
-        report = build_markdown_report("PR #99", "APPROVE", {"removed-skill": skill})
-        self.assertIn("## 🟢 Agent Skills Review: PR #99 — `APPROVE`", report)
-        self.assertIn("| `removed-skill` | **DELETED** | 🟢 APPROVE |", report)
-        self.assertIn("This skill was deleted in this change. Skipping quality review and approving deletion.", report)
+        report = build_markdown_report("PR #99", "COMMENT", {"removed-skill": skill})
+        self.assertIn("Skill Lint: PR #99", report)
+        self.assertIn("| `removed-skill` | **DELETED** | 🟡 COMMENT |", report)
+        self.assertIn("deletion requires review", report)
 
 
-class ComprehensionAndReasoningTests(unittest.TestCase):
+class MetadataAndAssessmentTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = Path(tempfile.mkdtemp())
         self.skills_dir = self.temp_dir / "skills"
@@ -181,7 +201,7 @@ class ComprehensionAndReasoningTests(unittest.TestCase):
     def tearDown(self) -> None:
         shutil.rmtree(self.temp_dir)
 
-    def test_synthesize_skill_understanding_extracts_workflows_and_assets(self) -> None:
+    def test_extract_skill_metadata_extracts_workflows_and_assets(self) -> None:
         skill_dir = self.skills_dir / "comprehension-skill"
         skill_dir.mkdir()
         (skill_dir / "references").mkdir()
@@ -201,7 +221,7 @@ license: MIT
 3. Verification against compliance invariants.
 """, encoding="utf-8")
 
-        summary = synthesize_skill_understanding(
+        summary = extract_skill_metadata(
             skill_name="comprehension-skill",
             root_dir=self.temp_dir,
             ref="HEAD",
@@ -237,7 +257,9 @@ license: MIT
             mock=True,
             cache_dir=self.temp_dir / "cache",
         )
-        self.assertEqual(skill.disposition, "APPROVE")
+        self.assertEqual(skill.disposition, "COMMENT")
+        self.assertFalse(skill.model_review_completed)
+        self.assertNotIn("Skill Review", build_markdown_report("local", skill.disposition, {skill.name: skill}))
         self.assertGreater(len(skill.reasoning_trace), 4)
         stages = [s["stage"] for s in skill.reasoning_trace]
         self.assertIn("1. Lifecycle Classification", stages)
@@ -260,10 +282,10 @@ license: MIT
         )
         report = build_markdown_report("PR #10", "APPROVE", {"demo-skill": skill})
         self.assertIn("<!-- agent-skills-review:report -->", report)
-        self.assertIn("#### 📋 Functional Summary & Change Understanding", report)
+        self.assertIn("#### 📋 Extracted Metadata", report)
         self.assertIn("Demonstrates understanding", report)
         self.assertIn("<details>", report)
-        self.assertIn("🧠 <b>Reasoning Chain & Evaluation Audit Trail</b>", report)
+        self.assertIn("🧠 <b>Validation Checks and Model Assessment</b>", report)
         self.assertIn("Model concurs with clean implementation", report)
         self.assertIn("1.23s latency", report)
 

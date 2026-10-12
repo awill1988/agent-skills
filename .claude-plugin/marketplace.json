@@ -10,6 +10,15 @@
   },
   "plugins": [
     {
+      "name": "new-agent-skill",
+      "displayName": "New Agent Skill (awill1988)",
+      "source": "./",
+      "skills": ["./skills/new-agent-skill"],
+      "description": "Interviews the author, scaffolds a skill in a remembered local collection checkout, and registers its discovery metadata.",
+      "category": "development",
+      "keywords": ["skill authoring", "scaffolding", "interview", "agent skills"]
+    },
+    {
       "name": "pr-stacks",
       "displayName": "Stacked Pull Requests",
       "source": "./",
