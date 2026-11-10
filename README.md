@@ -67,6 +67,7 @@ installed and configured; the creator additionally needs Python 3, Git, and uv.
 | Code Comments and Docstrings | [`code-documentation-simplification`](skills/code-documentation-simplification) | Distill source comments into domain invariants and design intent. |
 | Daily Standup | [`daily-standup`](skills/daily-standup) | Reconstruct your working day or prepare a catch-up after absence. |
 | Stacked Pull Requests | [`pr-stacks`](skills/pr-stacks) | Explain stack review order and draft review requests. |
+| Agent Program Upgrades and Hardening | [`upgrade-agents`](skills/upgrade-agents) | Audit coding agent CLIs against stable releases, purge stale configs, block telemetry, and enable safe dev modes. |
 
 ## Create a skill
 
@@ -242,6 +243,27 @@ python3 skills/code-documentation-simplification/scripts/scan_comments.py --form
 
 Includes an automated scanner ([`scripts/scan_comments.py`](skills/code-documentation-simplification/scripts/scan_comments.py)), foundational DDD analysis ([`references/domain-driven-design-principles.md`](skills/code-documentation-simplification/references/domain-driven-design-principles.md)), an anti-pattern taxonomy ([`references/comment-anti-patterns.md`](skills/code-documentation-simplification/references/comment-anti-patterns.md)), and polyglot before/after transformations across Rust, Swift, Python, and TypeScript ([`examples/transformations.md`](skills/code-documentation-simplification/examples/transformations.md)).
 
+## upgrade-agents
+
+Coding agent CLIs ship breaking configuration changes, renamed feature flags, and new telemetry/experimentation SDKs across rapid release cycles. Updating only the binary version leaves deprecated keys triggering parser warnings and newly introduced analytics switches enabled by default.
+
+```bash
+# Discover installed agent wrappers, payload binaries, declarative pins, and redacted configs
+python3 skills/upgrade-agents/scripts/audit_agents.py discover --workspace "$PWD"
+
+# Scour stable GitHub releases across the version delta and extract Nix SRI hashes
+python3 skills/upgrade-agents/scripts/audit_agents.py releases --agent codex --since 0.160.0 --hashes
+
+# Probe payload binary identifiers against active user configuration
+python3 skills/upgrade-agents/scripts/audit_agents.py probe-binary --agent claude
+```
+
+- **Stable-only upgrades with provenance preservation**: Rejects drafts and prerelease tags (`alpha`, `beta`, `rc`, `canary`, `nightly`, `preview`), traces wrapper chains (`profile-router`, `.foo-wrapped`, symlinks) to identify the owning package manager (`nix`, `homebrew`, `npm`, `uv`, `cargo`, `vendor`), and respects intentional local stubs.
+- **Audit-first confirmation gate**: Presents release deltas, stale config removals (including mutable activation-merge pruning), dual-layer privacy/telemetry lockdowns, and redacted diffs before mutating packages or configurations.
+- **4-gate developer-mode rubric**: Automatically enables discovered local/power-user developer modes that pass telemetry, sandbox/approval, local-capability, and binary-compatibility checks while gating any mode that exports remote traces or weakens permissions.
+
+Includes a zero-dependency discovery and binary-surface auditor ([`scripts/audit_agents.py`](skills/upgrade-agents/scripts/audit_agents.py)), cross-vendor telemetry matrix ([`references/privacy-and-telemetry-matrix.md`](skills/upgrade-agents/references/privacy-and-telemetry-matrix.md)), and stale-config / dev-mode evaluation rubric ([`references/dev-mode-and-stale-config-rubric.md`](skills/upgrade-agents/references/dev-mode-and-stale-config-rubric.md)).
+
 ## Contributing
 
 Skills follow the [Agent Skills](https://agentskills.io) layout: a kebab-case
@@ -258,6 +280,7 @@ uv run --with-requirements tools/requirements.txt python tools/validate_collecti
 uv run --with-requirements tools/requirements.txt python -m unittest discover -s tools -p 'test_*.py'
 uv run --with-requirements tools/requirements.txt python -m unittest discover -s tools/skill_reviewer -p 'test_*.py'
 python3 -m unittest discover -s skills/code-documentation-simplification/scripts -p 'test_*.py'
+python3 -m unittest discover -s skills/upgrade-agents/scripts -p 'test_*.py'
 ```
 
 CI runs deterministic collection checks on pull requests, including drafts.

@@ -37,3 +37,5 @@ jobs:
         run: python -m unittest discover -s tools/skill_reviewer -p 'test_*.py'
       - name: Test comment scanner
         run: python -m unittest discover -s skills/code-documentation-simplification/scripts -p 'test_*.py'
+      - name: Test agent upgrade auditor
+        run: python -m unittest discover -s skills/upgrade-agents/scripts -p 'test_*.py'

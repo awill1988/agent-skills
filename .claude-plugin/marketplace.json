@@ -62,6 +62,15 @@
       "description": "Authors, consolidates, and reviews architecture decision records with explicit invariants, consequences, and historical supersession.",
       "category": "documentation",
       "keywords": ["architecture", "ADR", "decision records", "consolidation", "supersession"]
+    },
+    {
+      "name": "upgrade-agents",
+      "displayName": "Agent Program Upgrades and Hardening",
+      "source": "./",
+      "skills": ["./skills/upgrade-agents"],
+      "description": "Audits coding agent CLIs against their latest stable GitHub releases, purges deprecated config keys, locks down telemetry and analytics, and enables safe local developer modes.",
+      "category": "development",
+      "keywords": ["agent upgrades", "privacy", "telemetry", "changelog audit", "configuration hardening", "dev mode"]
     }
   ]
 }

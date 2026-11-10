@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent Program Upgrades and Hardening"
+  short_description: "Upgrade agent programs, purge stale configs, block telemetry"
+  default_prompt: "Use $upgrade-agents to audit installed coding agents against their latest stable releases, purge stale config keys, enforce full telemetry and analytics disablement, and evaluate safe local dev modes."
